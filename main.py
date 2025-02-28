@@ -3,6 +3,7 @@ import string
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 
+# Вставь свой токен и ссылку на Boosty
 TOKEN = "ТВОЙ_ТЕЛЕГРАМ_ТОКЕН"
 BOOSTY_URL = "https://boosty.to/ТВОЙ_БЛОГ"
 
@@ -13,6 +14,7 @@ user_codes = {}
 def generate_code():
     return ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
 
+# Приветственное сообщение
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         f"💫 Добро пожаловать! Чтобы получить доступ к сценариям, "
@@ -31,7 +33,10 @@ async def get_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Создаём новый код и привязываем к пользователю
         new_code = generate_code()
         user_codes[user_id] = new_code
-        await update.message.reply_text(f"✅ Ваш уникальный код: {new_code}\n\nВведите его командой: /code <ВАШ_КОД>")
+        await update.message.reply_text(
+            f"✅ Ваш уникальный код: {new_code}\n\n"
+            "Введите его командой: /code <ВАШ_КОД>"
+        )
 
 # Проверка введённого кода
 async def check_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -48,10 +53,17 @@ async def check_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("❌ Неверный код или код уже использован.")
 
-application = Application.builder().token(TOKEN).build()
+# Основная логика бота
+def main():
+    application = Application.builder().token(TOKEN).build()
 
-application.add_handler(CommandHandler("start", start))
-application.add_handler(CommandHandler("getcode", get_code))
-application.add_handler(CommandHandler("code", check_code))
+    # Регистрация команд
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("getcode", get_code))
+    application.add_handler(CommandHandler("code", check_code))
 
-application.run_polling()
+    print("Бот запущен...")
+    application.run_polling()
+
+if __name__ == "__main__":
+    main()
