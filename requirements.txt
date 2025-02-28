@@ -1,1 +1,7 @@
-python-telegram-bot==20.8
+python-telegram-bot==20.8  # Для работы с Telegram API
+requests==2.31.0           # Для HTTP-запросов (парсинг афиш и данных)
+python-dotenv==1.0.0       # Для работы с переменными окружения (.env)
+openai==1.13.3             # Если используешь OpenAI API для генерации текста
+Flask==3.0.0               # Если используешь вебхук на Railway
+gunicorn==21.2.0           # Для запуска приложения на сервере (Railway)
+beautifulsoup4==4.12.3     # Для парсинга сайтов (например, афиши)
