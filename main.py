@@ -4,7 +4,7 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 
 # Вставь свой токен и ссылку на Boosty
-TOKEN = "ТВОЙ_ТЕЛЕГРАМ_ТОКЕН"
+TOKEN = 8179789266:AAFiXJ-B-32F2GfZxOghM8qiHOtnRXXE5Sc
 BOOSTY_URL = "https://boosty.to/ТВОЙ_БЛОГ"
 
 # Хранилище кодов {user_id: код}
