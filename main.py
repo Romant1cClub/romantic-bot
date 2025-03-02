@@ -3,10 +3,15 @@ import string
 import sqlite3
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
+from dotenv import load_dotenv
+import os
 
-# Вставьте свои значения
-TOKEN = '8179789266:AAFiXJ-B-32F2GfZxOghM8qiHOtnRXXE5Sc'  # Замените на токен вашего бота
-BOOSTY_URL = 'https://boosty.to/romant1cclub_bot'  # Замените на вашу ссылку Boosty
+# Загружаем переменные из .env
+load_dotenv()
+
+# Получаем переменные окружения
+TOKEN = os.getenv('TOKEN')  # Токен бота
+BOOSTY_URL = os.getenv('BOOSTY_URL')  # Ссылка на Boosty
 
 # Инициализация базы данных
 def init_db():
