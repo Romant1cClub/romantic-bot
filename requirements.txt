@@ -1,4 +1,4 @@
-python-telegram-bot==20.8  # Для работы с Telegram API
+python-telegram-bot==21.0  # Для работы с Telegram API
 requests==2.31.0           # Для HTTP-запросов (парсинг афиш и данных)
 python-dotenv==1.0.0       # Для работы с переменными окружения (.env)
 openai==1.13.3             # Если используешь OpenAI API для генерации текста
