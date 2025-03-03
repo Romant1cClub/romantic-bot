@@ -4,6 +4,7 @@ import sqlite3
 import logging
 import requests
 from bs4 import BeautifulSoup
+from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters, CallbackQueryHandler
 from dotenv import load_dotenv
@@ -35,7 +36,15 @@ messages = {
         "code_fail": "❌ Неверный код или код уже использован.",
         "scenario": "📖 Вот ваш сценарий: ...",
         "not_subscribed": "❌ У вас нет доступа к сценариям. Оформите подписку.",
-        "no_events": "❌ Нет доступных мероприятий."
+        "no_events": "❌ Нет доступных мероприятий.",
+        "choose_city": "Выберите город:",
+        "city_selected": "Выбран город: {}",
+        "settings": "⚙️ Ваши настройки:\n📍 Локация: {}\n⏰ Время: {}\n👥 С кем: {}\n🎭 Настроение: {}\n📝 Нюансы: {}",
+        "location_updated": "📍 Локация изменена на: {}",
+        "time_updated": "⏰ Время изменено на: {}",
+        "company_updated": "👥 Компания изменена на: {}",
+        "mood_updated": "🎭 Настроение изменено на: {}",
+        "notes_updated": "📝 Нюансы изменены на: {}"
     },
     "en": {
         "welcome": "💫 Welcome!",
@@ -46,7 +55,15 @@ messages = {
         "code_fail": "❌ Invalid code or code already used.",
         "scenario": "📖 Here is your scenario: ...",
         "not_subscribed": "❌ You don't have access to scenarios. Please subscribe.",
-        "no_events": "❌ No events available."
+        "no_events": "❌ No events available.",
+        "choose_city": "Choose city:",
+        "city_selected": "Selected city: {}",
+        "settings": "⚙️ Your settings:\n📍 Location: {}\n⏰ Time: {}\n👥 Company: {}\n🎭 Mood: {}\n📝 Notes: {}",
+        "location_updated": "📍 Location updated to: {}",
+        "time_updated": "⏰ Time updated to: {}",
+        "company_updated": "👥 Company updated to: {}",
+        "mood_updated": "🎭 Mood updated to: {}",
+        "notes_updated": "📝 Notes updated to: {}"
     },
     "uk": {
         "welcome": "💫 Ласкаво просимо!",
@@ -57,7 +74,15 @@ messages = {
         "code_fail": "❌ Невірний код або код вже використано.",
         "scenario": "📖 Ось ваш сценарій: ...",
         "not_subscribed": "❌ У вас немає доступу до сценаріїв. Оформіть підписку.",
-        "no_events": "❌ Немає доступних заходів."
+        "no_events": "❌ Немає доступних заходів.",
+        "choose_city": "Виберіть місто:",
+        "city_selected": "Обране місто: {}",
+        "settings": "⚙️ Ваші налаштування:\n📍 Локація: {}\n⏰ Час: {}\n👥 З ким: {}\n🎭 Настрій: {}\n📝 Нюанси: {}",
+        "location_updated": "📍 Локація змінена на: {}",
+        "time_updated": "⏰ Час змінено на: {}",
+        "company_updated": "👥 Компанія змінена на: {}",
+        "mood_updated": "🎭 Настрій змінено на: {}",
+        "notes_updated": "📝 Нюанси змінено на: {}"
     }
 }
 
@@ -72,6 +97,17 @@ def init_db():
             is_subscribed INTEGER DEFAULT 0
         )
     ''')
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS user_settings (
+            user_id INTEGER PRIMARY KEY,
+            location TEXT DEFAULT 'Польша',
+            time TEXT DEFAULT 'Вечер',
+            company TEXT DEFAULT 'Друзья',
+            mood TEXT DEFAULT 'Веселье',
+            notes TEXT DEFAULT '',
+            FOREIGN KEY (user_id) REFERENCES users (user_id)
+        )
+    ''')
     conn.commit()
     conn.close()
 
@@ -80,6 +116,7 @@ def add_user(user_id):
     conn = sqlite3.connect('bot_database.db')
     cursor = conn.cursor()
     cursor.execute('INSERT OR IGNORE INTO users (user_id) VALUES (?)', (user_id,))
+    cursor.execute('INSERT OR IGNORE INTO user_settings (user_id) VALUES (?)', (user_id,))
     conn.commit()
     conn.close()
 
@@ -109,8 +146,33 @@ def get_user_language(update: Update):
     lang = update.effective_user.language_code
     return lang if lang in messages else "en"
 
+# Получение настроек пользователя
+def get_user_settings(user_id):
+    conn = sqlite3.connect('bot_database.db')
+    cursor = conn.cursor()
+    cursor.execute('SELECT location, time, company, mood, notes FROM user_settings WHERE user_id = ?', (user_id,))
+    result = cursor.fetchone()
+    conn.close()
+    if result:
+        return {
+            "location": result[0],
+            "time": result[1],
+            "company": result[2],
+            "mood": result[3],
+            "notes": result[4]
+        }
+    return None
+
+# Обновление настроек пользователя
+def update_user_settings(user_id, key, value):
+    conn = sqlite3.connect('bot_database.db')
+    cursor = conn.cursor()
+    cursor.execute(f'UPDATE user_settings SET {key} = ? WHERE user_id = ?', (value, user_id))
+    conn.commit()
+    conn.close()
+
 # Парсинг афиш
-def parse_events(city="Москва"):
+def parse_events(city="Польша"):
     url = f"https://example.com/afisha/{city}"  # Замените на реальный URL
     response = requests.get(url)
     soup = BeautifulSoup(response.text, 'html.parser')
@@ -128,12 +190,26 @@ def parse_events(city="Москва"):
     return events
 
 # Генерация сценария
-def generate_scenario(events):
-    scenario = "📅 Ваш план на день:\n\n"
+def generate_scenario(events, user_settings):
+    location = user_settings.get("location", "Польша")
+    time = user_settings.get("time", "Вечер")
+    company = user_settings.get("company", "Друзья")
+    mood = user_settings.get("mood", "Веселье")
+    notes = user_settings.get("notes", "")
+
+    scenario = (
+        f"📅 Ваш план на {time} в {location}:\n\n"
+        f"👥 С кем: {company}\n"
+        f"🎭 Настроение: {mood}\n"
+        f"📝 Нюансы: {notes}\n\n"
+        "Мероприятия:\n"
+    )
+
     for event in events:
         scenario += f"🎭 {event['title']}\n"
         scenario += f"📅 Дата: {event['date']}\n"
         scenario += f"📍 Место: {event['location']}\n\n"
+
     return scenario
 
 # Команда /start
@@ -148,60 +224,56 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(messages[user_language]["welcome"], reply_markup=keyboard)
 
-# Обработка нажатия кнопки "Получить код"
-async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# Команда /settings
+async def settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     user_language = get_user_language(update)
 
-    if not check_subscription(user_id):
-        await update.message.reply_text(messages[user_language]["not_subscribed"])
-        return
-
-    conn = sqlite3.connect('bot_database.db')
-    cursor = conn.cursor()
-    cursor.execute('SELECT code FROM users WHERE user_id = ?', (user_id,))
-    result = cursor.fetchone()
-    conn.close()
-
-    if result and result[0]:
-        await update.message.reply_text(f"📌 Ваш код уже сгенерирован: {result[0]}")
+    settings = get_user_settings(user_id)
+    if settings:
+        settings_text = messages[user_language]["settings"].format(
+            settings["location"], settings["time"], settings["company"], settings["mood"], settings["notes"]
+        )
     else:
-        new_code = generate_code()
-        update_code(user_id, new_code)
-        await update.message.reply_text(f"✅ Ваш уникальный код: {new_code}\n\n{messages[user_language]['code_prompt']}")
+        settings_text = "Настройки не найдены. Используйте команды для настройки."
 
-# Команда /scenario
-async def scenario(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(settings_text)
+
+# Команда /set_location
+async def set_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     user_language = get_user_language(update)
+    location = ' '.join(context.args)
 
-    if not check_subscription(user_id):
-        await update.message.reply_text(messages[user_language]["not_subscribed"])
-        return
+    update_user_settings(user_id, "location", location)
+    await update.message.reply_text(messages[user_language]["location_updated"].format(location))
 
-    # Парсим афиши
-    events = parse_events(city="Москва")  # Можно добавить выбор города
+# Команда /set_time
+async def set_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    user_language = get_user_language(update)
+    time = ' '.join(context.args)
 
-    if not events:
-        await update.message.reply_text(messages[user_language]["no_events"])
-        return
+    update_user_settings(user_id, "time", time)
+    await update.message.reply_text(messages[user_language]["time_updated"].format(time))
 
-    # Генерируем сценарий
-    scenario_text = generate_scenario(events)
-    await update.message.reply_text(scenario_text)
+# Команда /set_company
+async def set_company(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    user_language = get_user_language(update)
+    company = ' '.join(context.args)
 
-# Основная функция
-def main():
-    init_db()  # Инициализация базы данных
-    application = Application.builder().token(TOKEN).build()
+    update_user_settings(user_id, "company", company)
+    await update.message.reply_text(messages[user_language]["company_updated"].format(company))
 
-    # Регистрация команд
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(MessageHandler(filters.TEXT & filters.Regex("Получить код|Get code|Отримати код"), button_handler))
-    application.add_handler(CommandHandler("scenario", scenario))
+# Команда /set_mood
+async def set_mood(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    user_language = get_user_language(update)
+    mood = ' '.join(context.args)
 
-    print("Бот запущен...")
-    application.run_polling()
+    update_user_settings(user_id, "mood", mood)
+    await update.message.reply_text(messages[user_language]["mood_updated"].format(mood))
 
-if __name__ == "__main__":
-    main()
+# Команда /set_notes
+async def
