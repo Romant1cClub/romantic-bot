@@ -1,8 +1,9 @@
 import random
 import string
 import sqlite3
-from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
+import logging
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters, CallbackQueryHandler
 from dotenv import load_dotenv
 import os
 
@@ -12,6 +13,18 @@ load_dotenv()
 # Получаем переменные окружения
 TOKEN = os.getenv('TOKEN')  # Токен бота
 BOOSTY_URL = os.getenv('BOOSTY_URL')  # Ссылка на Boosty
+
+# Настройка логирования
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    filename="bot.log"
+)
+logger = logging.getLogger(__name__)
+
+# Хранилище данных
+user_codes = {}  # {user_id: код}
+subscribed_users = set()  # Множество подписанных пользователей
 
 # Инициализация базы данных
 def init_db():
@@ -27,73 +40,50 @@ def init_db():
     conn.commit()
     conn.close()
 
-# Добавление пользователя в базу данных
-def add_user(user_id):
-    conn = sqlite3.connect('bot_database.db')
-    cursor = conn.cursor()
-    cursor.execute('INSERT OR IGNORE INTO users (user_id) VALUES (?)', (user_id,))
-    conn.commit()
-    conn.close()
-
-# Обновление кода пользователя
-def update_code(user_id, code):
-    conn = sqlite3.connect('bot_database.db')
-    cursor = conn.cursor()
-    cursor.execute('UPDATE users SET code = ? WHERE user_id = ?', (code, user_id))
-    conn.commit()
-    conn.close()
-
-# Проверка подписки пользователя
-def check_subscription(user_id):
-    conn = sqlite3.connect('bot_database.db')
-    cursor = conn.cursor()
-    cursor.execute('SELECT is_subscribed FROM users WHERE user_id = ?', (user_id,))
-    result = cursor.fetchone()
-    conn.close()
-    return result[0] if result else False
-
 # Генерация уникального кода
 def generate_code():
     return ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
 
 # Команда /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        f"💫 Добро пожаловать! Чтобы получить доступ к сценариям, "
-        f"оформите подписку: {BOOSTY_URL}\n\n"
-        "После оплаты отправьте команду: /getcode"
-    )
+    keyboard = [
+        [InlineKeyboardButton("Оформить подписку", url=BOOSTY_URL)],
+        [InlineKeyboardButton("Получить код", callback_data='get_code')]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text("💫 Добро пожаловать!", reply_markup=reply_markup)
 
-# Команда /getcode
-async def get_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    add_user(user_id)
+# Обработка нажатия кнопки "Получить код"
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
 
-    if not check_subscription(user_id):
-        await update.message.reply_text("❌ Вы не подписаны. Пожалуйста, оформите подписку.")
+    user_id = query.from_user.id
+
+    if user_id not in subscribed_users:
+        await query.edit_message_text("❌ Вы не подписаны. Пожалуйста, оформите подписку.")
         return
 
-    new_code = generate_code()
-    update_code(user_id, new_code)
-    await update.message.reply_text(
-        f"✅ Ваш уникальный код: {new_code}\n\n"
-        "Введите его командой: /code <ВАШ_КОД>"
-    )
+    if user_id in user_codes:
+        await query.edit_message_text(f"📌 Ваш код уже сгенерирован: {user_codes[user_id]}")
+    else:
+        new_code = generate_code()
+        user_codes[user_id] = new_code
+        await query.edit_message_text(
+            f"✅ Ваш уникальный код: {new_code}\n\n"
+            "Введите его командой: /code <ВАШ_КОД>"
+        )
 
 # Команда /code
 async def check_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     user_code = ' '.join(context.args)
 
-    conn = sqlite3.connect('bot_database.db')
-    cursor = conn.cursor()
-    cursor.execute('SELECT code FROM users WHERE user_id = ?', (user_id,))
-    result = cursor.fetchone()
-    conn.close()
-
-    if result and result[0] == user_code:
-        await update.message.reply_text("🎉 Код подтверждён! Доступ к сценариям открыт. Введите /scenario, чтобы начать.")
-        update_code(user_id, None)  # Удаляем код после использования
+    if user_id in user_codes and user_codes[user_id] == user_code:
+        await update.message.reply_text(
+            "🎉 Код подтверждён! Доступ к сценариям открыт. Введите /scenario, чтобы начать."
+        )
+        del user_codes[user_id]
     else:
         await update.message.reply_text("❌ Неверный код или код уже использован.")
 
@@ -101,11 +91,17 @@ async def check_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def scenario(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
 
-    if not check_subscription(user_id):
+    if user_id not in subscribed_users:
         await update.message.reply_text("❌ У вас нет доступа к сценариям. Оформите подписку.")
         return
 
+    # Пример сценария
     await update.message.reply_text("📖 Вот ваш сценарий: ...")
+
+# Обработка ошибок
+async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logger.error(f"Ошибка: {context.error}")
+    await update.message.reply_text("❌ Произошла ошибка. Пожалуйста, попробуйте позже.")
 
 # Основная функция
 def main():
@@ -114,9 +110,12 @@ def main():
 
     # Регистрация команд
     application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("getcode", get_code))
+    application.add_handler(CallbackQueryHandler(button_handler))
     application.add_handler(CommandHandler("code", check_code))
     application.add_handler(CommandHandler("scenario", scenario))
+
+    # Обработчик ошибок
+    application.add_error_handler(error_handler)
 
     print("Бот запущен...")
     application.run_polling()
