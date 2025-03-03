@@ -2,7 +2,7 @@ import random
 import string
 import sqlite3
 import logging
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters, CallbackQueryHandler
 from dotenv import load_dotenv
 import os
@@ -21,6 +21,30 @@ logging.basicConfig(
     filename="bot.log"
 )
 logger = logging.getLogger(__name__)
+
+# Локализация
+messages = {
+    "ru": {
+        "welcome": "💫 Добро пожаловать!",
+        "subscribe": "Оформите подписку: {BOOSTY_URL}",
+        "get_code": "Получить код",
+        "code_prompt": "Введите код доступа:",
+        "code_success": "🎉 Код подтверждён! Доступ к сценариям открыт.",
+        "code_fail": "❌ Неверный код или код уже использован.",
+        "scenario": "📖 Вот ваш сценарий: ...",
+        "not_subscribed": "❌ У вас нет доступа к сценариям. Оформите подписку."
+    },
+    "en": {
+        "welcome": "💫 Welcome!",
+        "subscribe": "Subscribe here: {BOOSTY_URL}",
+        "get_code": "Get code",
+        "code_prompt": "Enter access code:",
+        "code_success": "🎉 Code confirmed! Access to scenarios granted.",
+        "code_fail": "❌ Invalid code or code already used.",
+        "scenario": "📖 Here is your scenario: ...",
+        "not_subscribed": "❌ You don't have access to scenarios. Please subscribe."
+    }
+}
 
 # Хранилище данных
 user_codes = {}  # {user_id: код}
@@ -44,14 +68,18 @@ def init_db():
 def generate_code():
     return ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
 
+# Получение языка пользователя
+def get_user_language(update: Update):
+    return update.effective_user.language_code or "en"
+
 # Команда /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_language = get_user_language(update)
     keyboard = [
-        [InlineKeyboardButton("Оформить подписку", url=BOOSTY_URL)],
-        [InlineKeyboardButton("Получить код", callback_data='get_code')]
-    ]
+        [InlineKeyboardButton(messages[user_language]["get_code"], callback_data='get_code')],
+        [InlineKeyboardButton(messages[user_language]["subscribe"], url=BOOSTY_URL)]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text("💫 Добро пожаловать!", reply_markup=reply_markup)
+    await update.message.reply_text(messages[user_language]["welcome"], reply_markup=reply_markup)
 
 # Обработка нажатия кнопки "Получить код"
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -59,9 +87,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
 
     user_id = query.from_user.id
+    user_language = get_user_language(update)
 
     if user_id not in subscribed_users:
-        await query.edit_message_text("❌ Вы не подписаны. Пожалуйста, оформите подписку.")
+        await query.edit_message_text(messages[user_language]["not_subscribed"])
         return
 
     if user_id in user_codes:
@@ -71,36 +100,36 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_codes[user_id] = new_code
         await query.edit_message_text(
             f"✅ Ваш уникальный код: {new_code}\n\n"
-            "Введите его командой: /code <ВАШ_КОД>"
+            f"{messages[user_language]['code_prompt']}"
         )
 
 # Команда /code
 async def check_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
+    user_language = get_user_language(update)
     user_code = ' '.join(context.args)
 
     if user_id in user_codes and user_codes[user_id] == user_code:
-        await update.message.reply_text(
-            "🎉 Код подтверждён! Доступ к сценариям открыт. Введите /scenario, чтобы начать."
-        )
+        await update.message.reply_text(messages[user_language]["code_success"])
         del user_codes[user_id]
     else:
-        await update.message.reply_text("❌ Неверный код или код уже использован.")
+        await update.message.reply_text(messages[user_language]["code_fail"])
 
 # Команда /scenario
 async def scenario(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
+    user_language = get_user_language(update)
 
     if user_id not in subscribed_users:
-        await update.message.reply_text("❌ У вас нет доступа к сценариям. Оформите подписку.")
+        await update.message.reply_text(messages[user_language]["not_subscribed"])
         return
 
-    # Пример сценария
-    await update.message.reply_text("📖 Вот ваш сценарий: ...")
+    await update.message.reply_text(messages[user_language]["scenario"])
 
 # Обработка ошибок
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"Ошибка: {context.error}")
+    user_language = get_user_language(update)
     await update.message.reply_text("❌ Произошла ошибка. Пожалуйста, попробуйте позже.")
 
 # Основная функция
