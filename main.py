@@ -61,27 +61,21 @@ async def handle_criteria(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["criteria"] = user_input
 
     # Уведомляем о начале генерации
+    async def handle_criteria(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_language = get_user_language(update)
+    user_input = update.message.text
+
+    # Уведомляем о начале генерации
     await update.message.reply_text(messages[user_language]["generating_scenario"])
 
     try:
-        # Генерация сценария с помощью OpenAI
-        prompt = f"Сгенерируй уникальный сценарий для свидания на основе следующих критериев:\n\n{user_input}"
-        response = openai.Completion.create(
-            engine="text-davinci-003",  # Модель OpenAI
-            prompt=prompt,
-            max_tokens=500,  # Максимальное количество токенов в ответе
-            temperature=0.7  # Уровень креативности
-        )
-
-        # Получаем сгенерированный текст
-        scenario = response.choices[0].text.strip()
-
-        # Отправляем сценарий пользователю
+        # Фиктивный сценарий (заглушка)
+        scenario = f"Ваш сценарий на основе критериев:\n\n{user_input}\n\nПример сценария:\n1. Начните с прогулки в парке.\n2. Посетите уютное кафе.\n3. Завершите вечер просмотром фильма."
         await update.message.reply_text(messages[user_language]["scenario_ready"])
         await update.message.reply_text(scenario)
 
     except Exception as e:
-        logger.error(f"Ошибка при генерации сценария: {e}")
+        logger.error(f"Ошибка: {e}")
         await update.message.reply_text(messages[user_language]["error"])
 
 # Основная функция
